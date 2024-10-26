@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nose-Controlled Flappy Bird</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+  <style>
+    body { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    #gameCanvas { background-color: #70c5ce; margin-top: 20px; }
+    #cameraContainer { position: fixed; top: 10px; right: 10px; width: 200px; height: 150px; overflow: hidden; border: 2px solid #ccc; border-radius: 8px; }
+    #cameraContainer video { width: 100%; height: 100%; object-fit: cover; }
+    #startButton { padding: 10px 20px; font-size: 18px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="cameraContainer">
+    <video id="video" autoplay muted></video>
+  </div>
+  <button id="startButton">Start</button>
+  <canvas id="gameCanvas" width="480" height="640"></canvas>
+
+  <script>
+    const videoElement = document.getElementById('video');
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const startButton = document.getElementById('startButton');
+    let birdY = canvas.height / 2;
+    let birdVelocity = 0;
+    const gravity = 0.5;
+    let noseY = null;
+    let gameStarted = false;
+    let gameOver = false;
+    let pipes = [];
+    const pipeWidth = 60;
+    const pipeGap = 150;
+    const pipeSpeed = 2;
+
+    // Configuração do vídeo e MediaPipe para detectar o rosto
+    async function initializeVideo() {
+      videoElement.srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
+    }
+
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+
+    faceMesh.onResults((results) => {
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
+        const landmarks = results.multiFaceLandmarks[0];
+        noseY = landmarks[1].y * canvas.height; // Posição vertical do nariz
+      }
+    });
+
+    new Camera(videoElement, {
+      onFrame: async () => {
+        await faceMesh.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480,
+    }).start();
+
+    initializeVideo();
+
+    // Inicia o jogo ao clicar no botão Start
+    startButton.addEventListener('click', () => {
+      if (!gameStarted) {
+        gameStarted = true;
+        gameOver = false;
+        birdY = canvas.height / 2;
+        birdVelocity = 0;
+        pipes = [];
+        startButton.style.display = 'none'; // Esconde o botão Start
+        generatePipe();
+        updateGame();
+      }
+    });
+
+    // Função para gerar novos canos
+    function generatePipe() {
+      const pipeY = Math.floor(Math.random() * (canvas.height - pipeGap - 200)) + 100;
+      pipes.push({ x: canvas.width, y: pipeY });
+    }
+
+    // Função para verificar colisão com canos
+    function checkCollision(pipe) {
+      const birdRadius = 20;
+      const birdX = 100;
+
+      // Verificar colisão com o cano superior e inferior
+      if (
+        birdX + birdRadius > pipe.x && birdX - birdRadius < pipe.x + pipeWidth &&
+        (birdY - birdRadius < pipe.y || birdY + birdRadius > pipe.y + pipeGap)
+      ) {
+        return true;
+      }
+      return false;
+    }
+
+    // Função para atualizar o jogo
+    function updateGame() {
+      if (gameStarted && !gameOver) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Atualizar posição e velocidade do "pássaro"
+        if (noseY !== null) {
+          birdVelocity = (noseY - birdY) * 0.1;
+        }
+        birdY += birdVelocity;
+        birdVelocity += gravity;
+
+        // Limites de borda
+        if (birdY < 0 || birdY > canvas.height) {
+          gameOver = true;
+          gameStarted = false;
+          startButton.style.display = 'block'; // Mostra o botão Start ao terminar o jogo
+        }
+
+        // Desenhar o "pássaro"
+        ctx.fillStyle = 'yellow';
+        ctx.beginPath();
+        ctx.arc(100, birdY, 20, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Atualizar e desenhar os canos
+        for (let i = pipes.length - 1; i >= 0; i--) {
+          const pipe = pipes[i];
+          pipe.x -= pipeSpeed;
+
+          // Desenhar o cano superior
+          ctx.fillStyle = 'green';
+          ctx.fillRect(pipe.x, 0, pipeWidth, pipe.y);
+
+          // Desenhar o cano inferior
+          ctx.fillRect(pipe.x, pipe.y + pipeGap, pipeWidth, canvas.height - pipe.y - pipeGap);
+
+          // Verificar colisão com o pássaro
+          if (checkCollision(pipe)) {
+            gameOver = true;
+            gameStarted = false;
+            startButton.style.display = 'block'; // Mostra o botão Start ao terminar o jogo
+          }
+
+          // Remover cano fora da tela e gerar novos canos
+          if (pipe.x + pipeWidth < 0) {
+            pipes.splice(i, 1);
+            generatePipe();
+          }
+        }
+
+        requestAnimationFrame(updateGame);
+      } else if (gameOver) {
+        // Tela de Game Over
+        ctx.font = '30px Arial';
+        ctx.fillStyle = 'red';
+        ctx.fillText('Game Over', canvas.width / 2 - 70, canvas.height / 2);
+        startButton.innerText = 'Restart';
+      }
+    }
+  </script>
+</body>
+</html>
